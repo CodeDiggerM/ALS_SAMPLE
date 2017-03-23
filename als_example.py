@@ -59,7 +59,7 @@ def __remove_firstrow(in_rdd):
     return in_rdd.filter(lambda line: line != header)
 
 if __name__ == "__main__":
-    if (len(sys.argv) != 3):
+    if (len(sys.argv) != 2):
         print "Usage: /path/to/spark/bin/spark-submit --driver-memory 2g " + \
           "MovieLensALS.py movieLensDataDir personalRatingsFile"
         sys.exit(1)
@@ -69,10 +69,6 @@ if __name__ == "__main__":
       .setAppName("MovieLensALS") \
       .set("spark.executor.memory", "4g")
     sc = SparkContext(conf=conf)
-
-    # load personal ratings
-    myRatings = loadRatings(sys.argv[2])
-    myRatingsRDD = sc.parallelize(myRatings, 1)
 
     # load ratings and movie titles
 
@@ -97,24 +93,20 @@ if __name__ == "__main__":
     # training, validation, test are all RDDs of (userId, movieId, rating)
 
     numPartitions = 4
-    training = ratings.filter(lambda x: x[0] < 6) \
-      .values() \
-      .union(myRatingsRDD) \
-      .repartition(numPartitions) \
-      .cache()
-
-    validation = ratings.filter(lambda x: x[0] >= 6 and x[0] < 8) \
+    training = ratings.filter(lambda x: x[0] < 8) \
       .values() \
       .repartition(numPartitions) \
       .cache()
 
-    test = ratings.filter(lambda x: x[0] >= 8).values().cache()
+    validation = ratings.filter(lambda x: x[0] >= 8) \
+      .values() \
+      .repartition(numPartitions) \
+      .cache()
 
     numTraining = training.count()
     numValidation = validation.count()
-    numTest = test.count()
 
-    print "Training: %d, validation: %d, test: %d" % (numTraining, numValidation, numTest)
+    print "Training: %d, Validatio: %d" % (numTraining, numValidation)
 
     # train models and evaluate them on the validation set
 
@@ -139,28 +131,17 @@ if __name__ == "__main__":
             bestLambda = lmbda
             bestNumIter = numIter
 
-    testRmse = computeRmse(bestModel, test, numTest)
+    validationRmse = computeRmse(bestModel, validation, numValidation)
 
     # evaluate the best model on the test set
     print "The best model was trained with rank = %d and lambda = %.1f, " % (bestRank, bestLambda) \
-      + "and numIter = %d, and its RMSE on the test set is %f." % (bestNumIter, testRmse)
+      + "and numIter = %d, and its RMSE on the test set is %f." % (bestNumIter, validationRmse)
 
     # compare the best model with a naive baseline that always returns the mean rating
     meanRating = training.union(validation).map(lambda x: x[2]).mean()
-    baselineRmse = sqrt(test.map(lambda x: (meanRating - x[2]) ** 2).reduce(add) / numTest)
-    improvement = (baselineRmse - testRmse) / baselineRmse * 100
+    baselineRmse = sqrt(validation.map(lambda x: (meanRating - x[2]) ** 2).reduce(add) / numValidation)
+    improvement = (baselineRmse - validationRmse) / baselineRmse * 100
     print "The best model improves the baseline by %.2f" % (improvement) + "%."
-
-    # make personalized recommendations
-
-    myRatedMovieIds = set([x[1] for x in myRatings])
-    candidates = sc.parallelize([m for m in movies if m not in myRatedMovieIds])
-    predictions = bestModel.predictAll(candidates.map(lambda x: (0, x))).collect()
-    recommendations = sorted(predictions, key=lambda x: x[2], reverse=True)[:50]
-
-    print "Movies recommended for you:"
-    for i in xrange(len(recommendations)):
-        print ("%2d: %s" % (i + 1, movies[recommendations[i][1]])).encode('ascii', 'ignore')
 
     # clean up
     # clean up
