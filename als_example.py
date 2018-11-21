@@ -59,9 +59,9 @@ def __remove_firstrow(in_rdd):
     return in_rdd.filter(lambda line: line != header)
 
 if __name__ == "__main__":
-    if (len(sys.argv) != 2):
+    if (len(sys.argv) != 3):
         print "Usage: /path/to/spark/bin/spark-submit --driver-memory 2g " + \
-          "MovieLensALS.py movieLensDataDir personalRatingsFile"
+          "als_example.py movieLensDataDir personalRatingsFile"
         sys.exit(1)
 
     # set up environment
